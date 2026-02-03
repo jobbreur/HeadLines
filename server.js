@@ -5,7 +5,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 
 const app = express();
-const port = process.env.PORT || 3000;
+const port = process.env.PORT;
 const refreshIntervalMs = 5 * 60 * 1000;
 const headlines = new Map();
 
@@ -75,7 +75,7 @@ app.get("/api/headlines", (_req, res) => {
 });
 
 app.listen(port, () => {
-  console.log(`Server running on http://localhost:${port}`);
+  console.log(`Server running on port ${port}`);
 });
 
 refreshHeadlines();
