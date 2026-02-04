@@ -29,6 +29,34 @@ const fetchHeadlines = async () => {
   const $ = cheerio.load(response.data);
   const discovered = [];
 
+  const addHeadline = (title, url) => {
+    if (!title || !url || headlines.has(url)) return;
+    headlines.set(url, {
+      title,
+      url,
+      discoveredAt: new Date().toISOString(),
+    });
+    discovered.push(url);
+  };
+
+  $('script[type="application/ld+json"]').each((_, element) => {
+    const raw = $(element).contents().text();
+    if (!raw) return;
+    try {
+      const data = JSON.parse(raw);
+      const entries = Array.isArray(data) ? data : [data];
+      entries.forEach((entry) => {
+        if (!entry || entry["@type"] !== "NewsArticle") return;
+        const title = entry.headline?.trim();
+        const url = entry.mainEntityOfPage?.["@id"] || entry.url;
+        if (!title || !url) return;
+        addHeadline(title, url);
+      });
+    } catch (error) {
+      console.warn("Skipping invalid ld+json block", error.message);
+    }
+  });
+
   $("a").each((_, element) => {
     const href = $(element).attr("href");
     const text = $(element).text().trim();
@@ -38,17 +66,12 @@ const fetchHeadlines = async () => {
     }
 
     const url = normalizeLink(href);
-    if (!url || headlines.has(url)) return;
+    if (!url) return;
 
     const title = text.replace(/\s+/g, " ");
     if (title.length < 12) return;
 
-    headlines.set(url, {
-      title,
-      url,
-      discoveredAt: new Date().toISOString(),
-    });
-    discovered.push(url);
+    addHeadline(title, url);
   });
 
   return discovered.length;
