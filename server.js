@@ -19,14 +19,34 @@ const normalizeLink = (href) => {
   return `https://www.telegraaf.nl/${href}`;
 };
 
+const fetchHomepageHtml = async () => {
+  const headers = {
+    "User-Agent":
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
+    Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+    "Accept-Language": "nl-NL,nl;q=0.9,en;q=0.8",
+  };
+
+  try {
+    const response = await axios.get("https://www.telegraaf.nl", { headers });
+    return response.data;
+  } catch (error) {
+    const status = error.response?.status;
+    if (status && status !== 403) {
+      throw error;
+    }
+  }
+
+  const fallbackResponse = await axios.get(
+    "https://r.jina.ai/http://www.telegraaf.nl",
+    { headers }
+  );
+  return fallbackResponse.data;
+};
+
 const fetchHeadlines = async () => {
-  const response = await axios.get("https://www.telegraaf.nl", {
-    headers: {
-      "User-Agent":
-        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36",
-    },
-  });
-  const $ = cheerio.load(response.data);
+  const html = await fetchHomepageHtml();
+  const $ = cheerio.load(html);
   const discovered = [];
 
   const addHeadline = (title, url) => {
