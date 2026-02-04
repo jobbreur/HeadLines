@@ -1,11 +1,11 @@
 import express from "express";
 import axios from "axios";
-import cheerio from "cheerio";
+import * as cheerio from "cheerio";
 import path from "path";
 import { fileURLToPath } from "url";
 
 const app = express();
-const port = process.env.PORT || 3000;
+const port = process.env.PORT;
 const refreshIntervalMs = 5 * 60 * 1000;
 const headlines = new Map();
 
@@ -29,6 +29,67 @@ const fetchHeadlines = async () => {
   const $ = cheerio.load(response.data);
   const discovered = [];
 
+  const addHeadline = (title, url) => {
+    if (!title || !url) return;
+    const normalizedUrl = normalizeLink(url);
+    if (!normalizedUrl) return;
+    if (/\.(png|jpe?g|gif|webp|svg)(\?|$)/i.test(normalizedUrl)) return;
+    if (headlines.has(normalizedUrl)) return;
+    headlines.set(normalizedUrl, {
+      title,
+      url: normalizedUrl,
+      discoveredAt: new Date().toISOString(),
+    });
+    discovered.push(normalizedUrl);
+  };
+
+  $('script[type="application/ld+json"]').each((_, element) => {
+    const raw = $(element).contents().text();
+    if (!raw) return;
+    try {
+      const data = JSON.parse(raw);
+      const entries = Array.isArray(data) ? data : [data];
+      entries.forEach((entry) => {
+        if (!entry || entry["@type"] !== "NewsArticle") return;
+        const title = entry.headline?.trim();
+        const url = entry.mainEntityOfPage?.["@id"] || entry.url;
+        if (!title || !url) return;
+        addHeadline(title, url);
+      });
+    } catch (error) {
+      console.warn("Skipping invalid ld+json block", error.message);
+    }
+  });
+
+  const nextDataRaw = $("#__NEXT_DATA__").contents().text();
+  if (nextDataRaw) {
+    try {
+      const nextData = JSON.parse(nextDataRaw);
+      const visited = new Set();
+      const walk = (value) => {
+        if (!value || visited.has(value)) return;
+        if (typeof value === "string") return;
+        if (typeof value !== "object") return;
+        visited.add(value);
+
+        if (typeof value.url === "string") {
+          const titleCandidate =
+            value.title || value.headline || value.name || value.label;
+          if (typeof titleCandidate === "string" && titleCandidate.length >= 12) {
+            if (value.url.includes("telegraaf.nl")) {
+              addHeadline(titleCandidate.trim(), value.url);
+            }
+          }
+        }
+
+        Object.values(value).forEach(walk);
+      };
+      walk(nextData);
+    } catch (error) {
+      console.warn("Skipping invalid __NEXT_DATA__ block", error.message);
+    }
+  }
+
   $("a").each((_, element) => {
     const href = $(element).attr("href");
     const text = $(element).text().trim();
@@ -38,17 +99,12 @@ const fetchHeadlines = async () => {
     }
 
     const url = normalizeLink(href);
-    if (!url || headlines.has(url)) return;
+    if (!url) return;
 
     const title = text.replace(/\s+/g, " ");
     if (title.length < 12) return;
 
-    headlines.set(url, {
-      title,
-      url,
-      discoveredAt: new Date().toISOString(),
-    });
-    discovered.push(url);
+    addHeadline(title, url);
   });
 
   return discovered.length;
@@ -75,7 +131,7 @@ app.get("/api/headlines", (_req, res) => {
 });
 
 app.listen(port, () => {
-  console.log(`Server running on http://localhost:${port}`);
+  console.log(`Server running on port ${port}`);
 });
 
 refreshHeadlines();
