@@ -30,13 +30,17 @@ const fetchHeadlines = async () => {
   const discovered = [];
 
   const addHeadline = (title, url) => {
-    if (!title || !url || headlines.has(url)) return;
-    headlines.set(url, {
+    if (!title || !url) return;
+    const normalizedUrl = normalizeLink(url);
+    if (!normalizedUrl) return;
+    if (/\.(png|jpe?g|gif|webp|svg)(\?|$)/i.test(normalizedUrl)) return;
+    if (headlines.has(normalizedUrl)) return;
+    headlines.set(normalizedUrl, {
       title,
-      url,
+      url: normalizedUrl,
       discoveredAt: new Date().toISOString(),
     });
-    discovered.push(url);
+    discovered.push(normalizedUrl);
   };
 
   $('script[type="application/ld+json"]').each((_, element) => {
@@ -56,6 +60,35 @@ const fetchHeadlines = async () => {
       console.warn("Skipping invalid ld+json block", error.message);
     }
   });
+
+  const nextDataRaw = $("#__NEXT_DATA__").contents().text();
+  if (nextDataRaw) {
+    try {
+      const nextData = JSON.parse(nextDataRaw);
+      const visited = new Set();
+      const walk = (value) => {
+        if (!value || visited.has(value)) return;
+        if (typeof value === "string") return;
+        if (typeof value !== "object") return;
+        visited.add(value);
+
+        if (typeof value.url === "string") {
+          const titleCandidate =
+            value.title || value.headline || value.name || value.label;
+          if (typeof titleCandidate === "string" && titleCandidate.length >= 12) {
+            if (value.url.includes("telegraaf.nl")) {
+              addHeadline(titleCandidate.trim(), value.url);
+            }
+          }
+        }
+
+        Object.values(value).forEach(walk);
+      };
+      walk(nextData);
+    } catch (error) {
+      console.warn("Skipping invalid __NEXT_DATA__ block", error.message);
+    }
+  }
 
   $("a").each((_, element) => {
     const href = $(element).attr("href");
